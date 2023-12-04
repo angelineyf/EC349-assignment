@@ -75,9 +75,25 @@ merged_data$yelping_since <- parse_datetime(merged_data$yelping_since, format = 
 
 ```
 
+The dates of business check-ins is a series of time stamps when a particular business establishment receives a review. could be more useful to be transformed into 
+
 > I'm not too sure if I need to transform the array/list in `elite` and `friends` variables into sub-dataframes or matrices?
 
-perform basic correlation analysis/visualisation to identify the relevant variables that could predict users reviews. 
+I now perform basic correlation analysis/visualisation to identify the relevant variables that could predict users reviews. 
+
+The distribution of stars given by users review:
+```{r}
+ggplot(merged_data, aes(x = stars.x)) + 
+  geom_bar()
+```
+The distribution of business stars:
+```{r}
+ggplot(merged_data, aes(x = stars.y)) + 
+  geom_histogram()
+```
+
+
+
 
 ## Phase 3: Validation and Deployment
 
