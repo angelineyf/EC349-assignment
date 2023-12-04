@@ -1,0 +1,84 @@
+---
+title: "EC349 Individual Assignment"
+author: "Angeline Ng"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(dplyr)
+library(tidyverse)
+library(readr)
+```
+
+## Phase 1: Problem Definition
+Given all available data from Yelp, this project aims to predict users review on business establishments. 
+
+## Phase 2: Data Understanding and Organisation
+
+```{r load_data, include=FALSE}
+#Pre-Processing Yelp Academic Data
+library(jsonlite)
+
+#Clear
+cat("\014")  
+rm(list=ls())
+
+#Set Directory
+setwd("C:/Users/angel/OneDrive - University of Warwick/Year 3/EC349 Data Science/R projects/EC349-assignment/Yelp-datasets")
+
+#Load .json Data
+business_data <- stream_in(file("yelp_academic_dataset_business.json")) 
+checkin_data  <- stream_in(file("yelp_academic_dataset_checkin.json")) 
+tip_data  <- stream_in(file("yelp_academic_dataset_tip.json")) 
+
+#Load small data
+review_data  <- load(file='yelp_review_small.Rda') 
+user_data  <- load(file='yelp_user_small.Rda') 
+```
+
+After a quick glimpse of each of the data set, I identified the common column(s) to merge all relevant data into a 2-dimensional data set. I will first merge the business and check in data with common column `business_id`, then merge the review data with all other data by their corresponding `user_id` and `business_id`.
+
+In order to avoid overlapping column names, I renamed the `date` variable in `checkin_data` into `checkin_date`:
+```{r}
+checkin_data <- checkin_data %>%
+  rename(checkin_date = date)
+```
+
+Now, the datasets are ready to be merged:
+```{r}
+#First business and checkin data
+merge_business_data <- business_data %>%
+  left_join(checkin_data, by = "business_id")
+
+#Then all other data
+merged_data <- review_data_small %>%
+  left_join(user_data_small, by = "user_id") %>%
+  left_join(tip_data, by = c("user_id", "business_id", "date")) %>%
+  left_join(merge_business_data, by = "business_id")
+```
+
+The `merged_data` should have the same number of observations as the `review_data` (1398056 obs.) and consist of all variables from the 5 datasets.
+```{r}
+glimpse(merged_data)
+```
+
+I noticed that some variables require parsing to better prepare the data for further analysis. 
+```{r}
+#Transform `date` from <chr> format to <dttr> format
+merged_data$date <- parse_datetime(merged_data$date, format = "%Y-%m-%d %H:%M:%S", na = c("", "NA"), locale = default_locale(), trim_ws = TRUE)
+
+#Transform `yelping_since` from <chr> format to <dttr> format
+merged_data$yelping_since <- parse_datetime(merged_data$yelping_since, format = "%Y-%m-%d %H:%M:%S", na = c("", "NA"), locale = default_locale(), trim_ws = TRUE)
+
+```
+
+> I'm not too sure if I need to transform the array/list in `elite` and `friends` variables into sub-dataframes or matrices?
+
+perform basic correlation analysis/visualisation to identify the relevant variables that could predict users reviews. 
+
+## Phase 3: Validation and Deployment
+
+
