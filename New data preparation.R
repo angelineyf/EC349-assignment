@@ -160,6 +160,8 @@ review_data <- review_data %>%
 ### COMBINE ALL DATA
 master_data <- inner_join(review_data, business_data, by = "business_id")
 
+master_data <- master_data[complete.cases(master_data), ]  #remove rows of missing x variables
+
 save(master_data, file = "master_data.Rda")
 
 #-------------------------------------------------------------------------------#
@@ -167,7 +169,7 @@ save(master_data, file = "master_data.Rda")
 #Modelling 1: Linear Regression
 
 # Copy new dataset for 1st specification
-model1_data <- master_data[complete.cases(master_data), ]
+model1_data <- master_data
 
 
 # Set seed for reproducibility
@@ -226,4 +228,6 @@ predictions <- predict(fit, newx = test_matrix)
 
 # Calculate the mean squared error
 mse <- mean((test_response - predictions)^2)
+
+
 
