@@ -14,9 +14,20 @@ library(readr)
 ```
 
 ## Phase 1: Problem Definition
-Given all available data from Yelp, this project aims to predict users review on business establishments. 
+Yelp is a business review platform founded in 2012 to.... This project aims to construct a model that predicts how many stars would a user *i* give to business *j*, based on information about the user and the business. I will utilise all 5 different datasets from Yelp, namely the business, review, user, tip and check-in data. 
+
+Using the work of Shellenberger (2017) as heuristics, the significant business attributes to be included in the predictive model are:
+- whether the business accepts credit cards
+- the parking options
+- whether the business provides catering services
+- whether it is good for kids
+- whether it offers a brunch menu
+- whether it serves alcohol
 
 ## Phase 2: Data Understanding and Organisation
+A quick glimpse into the datasets suggests that while there exist numerous features which could generate meaningful predictions, many of them are only available in a very small number of entries. Due to this limitation, I will constraint the data to variables that are seemingly widely applicable and easy to be transformed into categorical, boolean or numerical values. 
+
+In order to reduce the computational intensity of data organisation, I will pre-process the datasets individually before merging them into one rectangular data frame. 
 
 ```{r load_data, include=FALSE}
 #Pre-Processing Yelp Academic Data
