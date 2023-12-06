@@ -64,13 +64,6 @@ business_data <- business_data %>%
 business_data <- business_data %>%
   select(-categories, -hours)
 
-# create dummy variables for each category
-# install.packages("fastDummies")
-library(fastDummies)
-
-# Create dummy variables for each category
-business_data <- fastDummies::dummy_cols(business_data, select_columns = "category")
-
 #-------------------------------------------------------------------------------#
 
 ### 2. TIP DATA
@@ -160,29 +153,48 @@ review_data <- review_data %>%
 ### COMBINE ALL DATA
 master_data <- inner_join(review_data, business_data, by = "business_id")
 
-master_data <- master_data[complete.cases(master_data), ]  #remove rows of missing x variables
+# User's average star rating given, by business category
+cat_stars <- master_data %>%
+  group_by(user_id, category) %>%
+  summarise(cat_stars = mean(stars.x, na.rm = TRUE)) %>%
+  pivot_wider(names_from = category, values_from = cat_stars)
+
+# Convert cat_stars to long format
+cat_stars_long <- cat_stars %>%
+  pivot_longer(cols = -user_id, names_to = "category", values_to = "cat_stars")
+
+# Merge master_data with cat_stars_long
+master_data <- master_data %>%
+  left_join(cat_stars_long, by = c("user_id", "category"))
+
+#remove rows of missing x variables
+master_data <- master_data[complete.cases(master_data), ]  
 
 save(master_data, file = "master_data.Rda")
 
 #-------------------------------------------------------------------------------#
 
-#Modelling 1: Linear Regression
+### MODELLING
 
-# Copy new dataset for 1st specification
-model1_data <- master_data
-
-
-# Set seed for reproducibility
 set.seed(1)
 
 # Split the data into training and test sets
 sample_size <- 10000
-test_indices <- sample(1:nrow(model1_data), sample_size)
-test_data <- model1_data[test_indices, ]
-train_data <- model1_data[-test_indices, ]
+test_indices <- sample(1:nrow(master_data), sample_size)
+test_data <- master_data[test_indices, ]
+train_data <- master_data[-test_indices, ]
 
 # Specify the model formula
 formula <- as.formula("stars.x ~ review_count.x + years_yelping + is_elite + diff*is_elite + city + state + postal_code + stars.y + review_count.y + wkend_open + rating_power + tip_count + checkin_freq + category")
+
+# Remove city & postal code variables (not enough match)
+formula_2 <- as.formula("stars.x ~ review_count.x + years_yelping + is_elite + diff*is_elite + state + stars.y + review_count.y + wkend_open + rating_power + tip_count + checkin_freq + category")
+
+# Include user's average star rating per category
+formula_3 <- as.formula("stars.x ~ review_count.x + years_yelping + is_elite + diff*is_elite + state + stars.y + review_count.y + wkend_open + rating_power + tip_count + checkin_freq + category + cat_stars")
+
+# Due to high collinearity between review_count.y and rating_power AND review_count.y and tip_count, drop review_count.y
+formula_4 <- as.formula("stars.x ~ review_count.x + years_yelping + is_elite + diff*is_elite + state + stars.y + wkend_open + rating_power + tip_count + checkin_freq + category + cat_stars")
 
 ### LINEAR MODEL
 # Specify the control parameters for the train function
@@ -190,44 +202,86 @@ ctrl <- trainControl(method = "repeatedcv", number = 10, repeats = 3)
 
 # Fit the model
 mod_1 <- train(formula, data = train_data, method = "lm", trControl = ctrl)
-
-# Print the summary of the model
-summary(mod_1)
+mod_2 <- train(formula_2, data = train_data, method = "lm", trControl = ctrl)
+mod_3 <- train(formula_3, data = train_data, method = "lm", trControl = ctrl)
+mod_4 <- train(formula_4, data = train_data, method = "lm", trControl = ctrl)
 
 # Predict on the test data
-predictions <- predict(mod_1, newdata = test_data)
+pred1 <- predict(mod_1, newdata = test_data)
+pred2 <- predict(mod_2, newdata = test_data)
+pred3 <- predict(mod_3, newdata = test_data)
+pred4 <- predict(mod_4, newdata = test_data)
 
 # Calculate the mean squared error
-mse <- postResample(pred = predictions, obs = test_data$stars.x)["MSE"]
+mse <- mean((test_data$stars.x - pred1)^2)
+mse <- mean((test_data$stars.x - pred2)^2) #mse > 1
+mse <- mean((test_data$stars.x - pred3)^2) #mse = 0.280579
+mse <- mean((test_data$stars.x - pred4)^2) #mse = 0.281291 ==> Use formula 4
 
-print(paste("Mean Squared Error: ", mse))
+#-------------------------------------------------------------------------------#
 
-#----------------------------------------#
+# Prepare the data for glmnet
+x <- model.matrix(formula_4, data = train_data)[,-1]  # remove intercept column
+y <- train_data$stars.x
+
+test_x <- model.matrix(formula_4, data = test_data)[,-1]  # remove intercept column
+
+# x and test_x has unequal number of columns. Reconstruct test_x matrix to match training data
+test_x_full <- matrix(0, nrow = nrow(test_x), ncol = ncol(x))
+colnames(test_x_full) <- colnames(x)
+common_vars <- intersect(colnames(x), colnames(test_x))
+test_x_full[, common_vars] <- test_x[, common_vars]
 
 
-# Convert factors to dummy variables
-train_matrix <- model.matrix(formula, data = train_data)
-test_matrix <- model.matrix(formula, data = test_data)
+## Compare LASSO, Ridge and OLS
 
-# Define the response variable
-train_response <- train_data$stars.x
-test_response <- test_data$stars.x
+parameters <- c(seq(0.1, 2, by =0.1) ,  seq(2, 5, 0.5) , seq(5, 25, 1))
 
-# Fit the ridge regression model
-fit <- glmnet(train_matrix, train_response, alpha = 0, lambda = NULL)
+lasso<-train(y = y,
+             x = x,
+             method = 'glmnet', 
+             tuneGrid = expand.grid(alpha = 1, lambda = parameters) ,
+             metric =  "Rsquared"
+) 
 
-# Perform cross-validation to find the optimal lambda
-cv_fit <- cv.glmnet(train_matrix, train_response, alpha = 0)
-optimal_lambda <- cv_fit$lambda.min
+ridge<-train(y = y,
+             x = x,
+             method = 'glmnet', 
+             tuneGrid = expand.grid(alpha = 0, lambda = parameters),
+             metric =  "Rsquared"
+             
+) 
+linear<-train(y = y, 
+              x = x, 
+              method = 'lm',
+              metric =  "Rsquared"
+)
 
-# Refit the model with the optimal lambda
-fit <- glmnet(train_matrix, train_response, alpha = 0, lambda = optimal_lambda)
+# Print the best parameters
+print(paste0('Lasso best parameters: ' , lasso$finalModel$lambdaOpt))
+print(paste0('Ridge best parameters: ' , ridge$finalModel$lambdaOpt))
 
-# Predict on the test set
-predictions <- predict(fit, newx = test_matrix)
+train_vars <- colnames(x)
+test_x <- test_x[, train_vars]
 
-# Calculate the mean squared error
-mse <- mean((test_response - predictions)^2)
+predictions_lasso <- lasso %>% predict(test_x_full)
+predictions_ridge <- ridge %>% predict(test_x_full)
+predictions_lin <- linear %>% predict(test_x_full)
+
+data.frame(
+  Ridge_R2 = R2(predictions_ridge, test_data$stars.x),
+  Lasso_R2 = R2(predictions_lasso, test_data$stars.x),
+  Linear_R2 = R2(predictions_lin, test_data$stars.x)
+)
+
+data.frame(
+  Ridge_RMSE = RMSE(predictions_ridge, test_data$stars.x) , 
+  Lasso_RMSE = RMSE(predictions_lasso, test_data$stars.x) , 
+  Linear_RMSE = RMSE(predictions_ridge, test_data$stars.x)
+)
+
+
+
 
 
 
